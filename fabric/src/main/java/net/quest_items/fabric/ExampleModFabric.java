@@ -2,6 +2,8 @@ package net.quest_items.fabric;
 
 import net.fabricmc.api.ModInitializer;
 
+import net.fabricmc.fabric.api.loot.v3.LootTableEvents;
+import net.quest_items.LootInjector;
 import net.quest_items.QuestItemsMod;
 
 public final class ExampleModFabric implements ModInitializer {
@@ -13,5 +15,9 @@ public final class ExampleModFabric implements ModInitializer {
 
         // Run our common setup.
         QuestItemsMod.init();
+
+        LootTableEvents.MODIFY.register((key, tableBuilder, source, registries) -> {
+            LootInjector.configure(registries, key.getValue(), tableBuilder);
+        });
     }
 }

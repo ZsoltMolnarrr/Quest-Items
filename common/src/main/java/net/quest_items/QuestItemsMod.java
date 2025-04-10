@@ -4,15 +4,13 @@ import net.tinyconfig.ConfigManager;
 
 public final class QuestItemsMod {
     public static final String ID = "quest_items";
-
-    private static ConfigManager<Config.Items> itemsConfig = new ConfigManager<>
+    public static final ConfigManager<Config.Items> itemsConfig = new ConfigManager<>
             ("items", new Config.Items())
             .builder()
             .setDirectory(ID)
             .sanitize(true)
             .build();
-
-    private static ConfigManager<Config.Loot> lootConfig = new ConfigManager<>
+    public static final ConfigManager<Config.Loot> lootConfig = new ConfigManager<>
             ("loot", Config.Loot.example())
             .builder()
             .setDirectory(ID)

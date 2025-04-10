@@ -10,7 +10,7 @@ public class Config {
 
     public static class Loot {
         public record Item(String itemId, int weight) {  }
-        public record Entry(float chance, List<Item> items) { }
+        public record Entry(float rolls, List<Item> items) { }
         public LinkedHashMap<String, Entry> entries = new LinkedHashMap<>();
 
         public static Loot example() {
