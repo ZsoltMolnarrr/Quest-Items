@@ -1,6 +1,6 @@
 {
   "parent": "minecraft:item/generated",
   "textures": {
-    "layer0": "quest_items:item/pharaohs_scepter"
+    "layer0": "quest_items:item/red_urn"
   }
 }

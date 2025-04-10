@@ -23,7 +23,9 @@ public class QuestItems {
     }
     public static final Rarity DEFAULT_RARITY = Rarity.UNCOMMON;
 
-    public static final Entry pharaohs_scepter = entry("pharaohs_scepter", "Pharaoh's Scepter", new Config(DEFAULT_RARITY));
+    public static final Entry pharaohs_mask = entry("pharaohs_mask", "Pharaoh's Mask", new Config(DEFAULT_RARITY));
+    public static final Entry ancient_king_scepter = entry("ancient_king_scepter", "Ancient King's Scepter", new Config(DEFAULT_RARITY));
+    public static final Entry red_urn = entry("red_urn", "Red Urn of Binding", new Config(DEFAULT_RARITY));
 
     public static void register(Map<String, Config> configs) {
         for (var entry : entries) {
