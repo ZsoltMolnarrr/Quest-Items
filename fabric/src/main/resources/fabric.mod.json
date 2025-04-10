@@ -20,6 +20,9 @@
     ],
     "client": [
       "net.quest_items.fabric.client.ExampleModFabricClient"
+    ],
+    "fabric-datagen": [
+      "net.quest_items.fabric.datagen.QuestItemsDataGenerator"
     ]
   },
   "mixins": [

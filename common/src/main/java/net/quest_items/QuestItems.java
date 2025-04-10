@@ -11,7 +11,7 @@ import java.util.Map;
 
 public class QuestItems {
     public record Config(Rarity rarity) { }
-    public static class Holder { Holder() { }; public Holder(Item item) { this.item = item; }; Item item; }
+    public static class Holder { Holder() { }; public Holder(Item item) { this.item = item; }; public Item item; }
     public record Entry(Identifier id, String translation, Config defaults, Holder holder) { }
     public static final ArrayList<Entry> entries = new ArrayList<>();
 

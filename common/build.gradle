@@ -14,3 +14,11 @@ dependencies {
 
     implementation ("com.github.ZsoltMolnarrr:TinyConfig:${project.tiny_config_version}")
 }
+
+sourceSets {
+    main {
+        resources {
+            srcDirs += ['src/main/generated']
+        }
+    }
+}

@@ -10,6 +10,25 @@ architectury {
     fabric()
 }
 
+//loom {
+//    // accessWidenerPath = project(":common").loom.accessWidenerPath
+//    runs {
+//        datagenClient {
+//            inherit client
+//            name 'Data Generation'
+//            vmArg '-Dfabric-api.datagen'
+//            vmArg "-Dfabric-api.datagen.output-dir=${project(':common').file('src/main/generated')}"
+//            vmArg '-Dfabric-api.datagen.modid=bingo'
+//        }
+//    }
+//}
+
+fabricApi {
+    configureDataGeneration() {
+        outputDirectory = project(':common').file('src/main/generated')
+    }
+}
+
 configurations {
     common {
         canBeResolved = true

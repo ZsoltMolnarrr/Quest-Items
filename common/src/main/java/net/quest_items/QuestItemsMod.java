@@ -24,5 +24,6 @@ public final class QuestItemsMod {
         lootConfig.refresh();
 
         QuestItems.register(itemsConfig.value.items);
+        itemsConfig.save();
     }
 }
