@@ -2,12 +2,12 @@ package net.quest_items.neoforge;
 
 import net.neoforged.fml.common.Mod;
 
-import net.quest_items.ExampleMod;
+import net.quest_items.QuestItemsMod;
 
-@Mod(ExampleMod.MOD_ID)
+@Mod(QuestItemsMod.ID)
 public final class ExampleModNeoForge {
     public ExampleModNeoForge() {
         // Run our common setup.
-        ExampleMod.init();
+        QuestItemsMod.init();
     }
 }
