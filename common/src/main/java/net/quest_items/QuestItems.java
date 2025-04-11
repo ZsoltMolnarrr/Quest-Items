@@ -27,6 +27,22 @@ public class QuestItems {
     public static final Entry ancient_king_scepter = entry("ancient_king_scepter", "Ancient King's Scepter", new Config(DEFAULT_RARITY));
     public static final Entry red_urn = entry("red_urn", "Red Urn of Binding", new Config(DEFAULT_RARITY));
     public static final Entry desert_rose = entry("desert_rose", "Desert Rose", new Config(DEFAULT_RARITY));
+    public static final Entry shackles = entry("shackles", "Shackles", new Config(DEFAULT_RARITY));
+    public static final Entry wildfire_essence = entry("wildfire_essence", "Wildfire Essence", new Config(DEFAULT_RARITY));
+    public static final Entry rotten_heart = entry("rotten_heart", "Rotten Heart", new Config(DEFAULT_RARITY));
+    public static final Entry frozen_grail = entry("frozen_grail", "Frozen Grail", new Config(DEFAULT_RARITY));
+    public static final Entry wither_ribcage = entry("wither_ribcage", "Wither Ribcage", new Config(DEFAULT_RARITY));
+    public static final Entry corruption_orb = entry("corruption_orb", "Corruption Orb", new Config(DEFAULT_RARITY));
+    public static final Entry corrupted_grail = entry("corrupted_grail", "Corrupted Grail", new Config(DEFAULT_RARITY));
+    public static final Entry skeletal_hand = entry("skeletal_hand", "Skeletal Hand", new Config(DEFAULT_RARITY));
+    public static final Entry stone_idol = entry("stone_idol", "Stone Idol", new Config(DEFAULT_RARITY));
+    public static final Entry toxic_vial = entry("toxic_vial", "Toxic Vial", new Config(DEFAULT_RARITY));
+    public static final Entry undead_essence = entry("undead_essence", "Undead Essence", new Config(DEFAULT_RARITY));
+    public static final Entry sack_of_magic_dust = entry("sack_of_magic_dust", "Sack of Magic Dust", new Config(DEFAULT_RARITY));
+    public static final Entry mossy_tablet = entry("mossy_tablet", "Mossy Tablet", new Config(DEFAULT_RARITY));
+    public static final Entry molten_tablet = entry("molten_tablet", "Molten Tablet", new Config(DEFAULT_RARITY));
+    public static final Entry tribal_totem = entry("tribal_totem", "Tribal Totem", new Config(DEFAULT_RARITY));
+    public static final Entry evil_codex = entry("evil_codex", "Evil Codex", new Config(DEFAULT_RARITY));
 
     public static void register(Map<String, Config> configs) {
         for (var entry : entries) {

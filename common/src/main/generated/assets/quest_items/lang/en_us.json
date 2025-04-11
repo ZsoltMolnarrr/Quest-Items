@@ -1,7 +1,23 @@
 {
   "item.quest_items.ancient_king_scepter": "Ancient King's Scepter",
+  "item.quest_items.corrupted_grail": "Corrupted Grail",
+  "item.quest_items.corruption_orb": "Corruption Orb",
   "item.quest_items.desert_rose": "Desert Rose",
+  "item.quest_items.evil_codex": "Evil Codex",
+  "item.quest_items.frozen_grail": "Frozen Grail",
+  "item.quest_items.molten_tablet": "Molten Tablet",
+  "item.quest_items.mossy_tablet": "Mossy Tablet",
   "item.quest_items.pharaohs_mask": "Pharaoh's Mask",
   "item.quest_items.red_urn": "Red Urn of Binding",
-  "itemGroup.quest_items.generic": "Quest Items"
+  "item.quest_items.rotten_heart": "Rotten Heart",
+  "item.quest_items.sack_of_magic_dust": "Sack of Magic Dust",
+  "item.quest_items.shackles": "Shackles",
+  "item.quest_items.skeletal_hand": "Skeletal Hand",
+  "item.quest_items.stone_idol": "Stone Idol",
+  "item.quest_items.toxic_vial": "Toxic Vial",
+  "item.quest_items.tribal_totem": "Tribal Totem",
+  "item.quest_items.undead_essence": "Undead Essence",
+  "item.quest_items.wildfire_essence": "Wildfire Essence",
+  "item.quest_items.wither_ribcage": "Wither Ribcage",
+  "itemGroups.quest_items.generic": "Quest Items"
 }
