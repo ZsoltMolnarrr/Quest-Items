@@ -9,6 +9,7 @@ import net.minecraft.data.client.BlockStateModelGenerator;
 import net.minecraft.data.client.ItemModelGenerator;
 import net.minecraft.data.client.Models;
 import net.minecraft.registry.RegistryWrapper;
+import net.quest_items.Group;
 import net.quest_items.QuestItems;
 
 import java.util.concurrent.CompletableFuture;
@@ -28,6 +29,7 @@ public class QuestItemsDataGenerator implements DataGeneratorEntrypoint {
 
         @Override
         public void generateTranslations(RegistryWrapper.WrapperLookup wrapperLookup, TranslationBuilder translationBuilder) {
+            translationBuilder.add(Group.translationKey, "Quest Items");
             QuestItems.entries.forEach(entry -> {
                 var id = entry.id();
                 translationBuilder.add("item." + id.getNamespace() + "." + id.getPath(), entry.translation());

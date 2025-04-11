@@ -1,5 +1,7 @@
 package net.quest_items;
 
+import net.minecraft.registry.Registries;
+import net.minecraft.registry.Registry;
 import net.tinyconfig.ConfigManager;
 
 public final class QuestItemsMod {
@@ -22,6 +24,7 @@ public final class QuestItemsMod {
         lootConfig.refresh();
 
         QuestItems.register(itemsConfig.value.items);
+        Registry.register(Registries.ITEM_GROUP, Group.KEY, Group.GROUP);
         itemsConfig.save();
     }
 }

@@ -16,10 +16,10 @@
   "environment": "*",
   "entrypoints": {
     "main": [
-      "net.quest_items.fabric.ExampleModFabric"
+      "net.quest_items.fabric.FabricMod"
     ],
     "client": [
-      "net.quest_items.fabric.client.ExampleModFabricClient"
+      "net.quest_items.fabric.client.FabricModClient"
     ],
     "fabric-datagen": [
       "net.quest_items.fabric.datagen.QuestItemsDataGenerator"
