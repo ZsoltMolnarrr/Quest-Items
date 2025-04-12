@@ -50,6 +50,7 @@ public class QuestItems {
     public static final Entry tribal_totem = entry("tribal_totem", "Tribal Totem", new Config(DEFAULT_RARITY));
     public static final Entry undead_essence = entry("undead_essence", "Undead Essence", new Config(DEFAULT_RARITY));
     public static final Entry unholy_candle = entry("unholy_candle", "Unholy Candle", new Config(DEFAULT_RARITY));
+    public static final Entry warden_ears = entry("warden_ears", "Warden Ears", new Config(DEFAULT_RARITY));
     public static final Entry wildfire_essence = entry("wildfire_essence", "Wildfire Essence", new Config(DEFAULT_RARITY));
     public static final Entry wither_ribcage = entry("wither_ribcage", "Wither Ribcage", new Config(DEFAULT_RARITY));
 
