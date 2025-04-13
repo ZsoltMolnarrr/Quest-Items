@@ -1,17 +1,17 @@
 modLoader = "javafml"
 loaderVersion = "[4,)"
 #issueTrackerURL = ""
-license = "Insert License Here"
+license = "GPL-3.0"
 
 [[mods]]
 modId = "quest_items"
 version = "${version}"
 displayName = "Quest Items"
-authors = "Me!"
+authors = "Daedelus"
 description = '''
-This is an example description! Tell everyone what your mod is about!
+Miscellaneous items of various themes, for quest objectives
 '''
-#logoFile = ""
+logoFile = "icon.png"
 
 [[dependencies.quest_items]]
 modId = "neoforge"

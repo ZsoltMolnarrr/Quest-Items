@@ -29,5 +29,5 @@
   "item.quest_items.warden_ears": "Warden Ears",
   "item.quest_items.wildfire_essence": "Wildfire Essence",
   "item.quest_items.wither_ribcage": "Wither Ribcage",
-  "itemGroups.quest_items.generic": "Quest Items"
+  "itemGroups.z_quest_items.generic": "Quest Items"
 }

@@ -9,8 +9,9 @@ import net.minecraft.util.Identifier;
 import java.util.function.Supplier;
 
 public class Group {
-    public static Identifier ID = Identifier.of(QuestItemsMod.ID, "generic");
-    public static String translationKey = "itemGroups." + ID.getNamespace() + "." + ID.getPath();
+    public static final String NAMESPACE = "z_" + QuestItemsMod.ID; // `z` to ensure it is at the end of the list
+    public static Identifier ID = Identifier.of(NAMESPACE, "generic");
+    public static String translationKey = "itemGroups." + NAMESPACE + "." + ID.getPath();
     public static RegistryKey<ItemGroup> KEY = RegistryKey.of(Registries.ITEM_GROUP.getKey(), ID);
     public static ItemGroup GROUP;
     public static Supplier<ItemStack> ICON = () -> {

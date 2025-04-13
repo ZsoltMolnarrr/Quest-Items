@@ -3,15 +3,15 @@
   "id": "quest_items",
   "version": "${version}",
   "name": "Quest Items",
-  "description": "This is an example description! Tell everyone what your mod is about!",
+  "description": "Miscellaneous items of various themes, for quest objectives",
   "authors": [
-    "Me!"
+    "Daedelus"
   ],
   "contact": {
-    "homepage": "https://fabricmc.net/",
-    "sources": "https://github.com/FabricMC/fabric-example-mod"
+    "homepage": "https://github.com/ZsoltMolnarrr/Quest-Items",
+    "sources": "https://github.com/ZsoltMolnarrr/Quest-Items"
   },
-  "license": "CC0-1.0",
+  "license": "GPL-3.0",
   "icon": "assets/quest_items/icon.png",
   "environment": "*",
   "entrypoints": {
