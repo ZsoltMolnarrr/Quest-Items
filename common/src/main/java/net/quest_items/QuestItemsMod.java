@@ -18,10 +18,17 @@ public final class QuestItemsMod {
             .setDirectory(ID)
             .sanitize(true)
             .build();
+    public static final ConfigManager<Config.Tweaks> tweaksConfig = new ConfigManager<>
+            ("tweaks", new Config.Tweaks())
+            .builder()
+            .setDirectory(ID)
+            .sanitize(true)
+            .build();
 
     public static void init() {
         itemsConfig.refresh();
         lootConfig.refresh();
+        tweaksConfig.refresh();
 
         QuestItems.register(itemsConfig.value.items);
         Registry.register(Registries.ITEM_GROUP, Group.KEY, Group.GROUP);

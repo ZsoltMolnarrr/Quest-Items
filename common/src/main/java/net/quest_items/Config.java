@@ -19,4 +19,8 @@ public class Config {
             return loot;
         }
     }
+
+    public static class Tweaks {
+        public boolean stronghold_portal_empty_frame = false;
+    }
 }
