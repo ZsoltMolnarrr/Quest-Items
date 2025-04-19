@@ -1,19 +1,9 @@
-# Enchant Limiter
+# Quest Items
 
-Limit the number of enchantments on an item.
+Miscellaneous items of various themes, for quest objectives.
 
-Automatically applies limit to all breakable items and enchanted books by default.
+Designed for FTB Quests.
 
-## Item component
+![Creative Tabs](https://cdn.modrinth.com/data/WsyCKVoz/images/d2812476a32edde1669ca853815cde2ad6b6f5c3.png)
 
-Enchantment limit is based on a new item component: `enchant_limiter:limit` 
-
-Example command
-```
-/give @p minecraft:golden_sword[enchant_limiter:limit={"count":3}]
-```
-
-## Configuration
-
-- Adjustable default enchantment limit (default: 3)
-
+![Questing](https://cdn.modrinth.com/data/WsyCKVoz/images/7b3e892990d61ad6f020d44cf615cab7314d29f0.png)
