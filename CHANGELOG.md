@@ -1,3 +1,7 @@
+# 1.0.2
+
+- Add some new items
+
 # 1.0.1
 
 - Add config for Stronghold Portal room to spawn with empty frame 

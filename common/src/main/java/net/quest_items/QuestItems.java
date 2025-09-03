@@ -28,6 +28,7 @@ public class QuestItems {
     public static final Entry black_pearl = entry("black_pearl", "Black Pearl", new Config(DEFAULT_RARITY));
     public static final Entry corruption_orb = entry("corruption_orb", "Corruption Orb", new Config(DEFAULT_RARITY));
     public static final Entry corrupted_grail = entry("corrupted_grail", "Corrupted Grail", new Config(DEFAULT_RARITY));
+    public static final Entry crystal_petal = entry("crystal_petal", "Crystal Petal", new Config(DEFAULT_RARITY));
     public static final Entry cursed_crown = entry("cursed_crown", "Cursed Crown", new Config(DEFAULT_RARITY));
     public static final Entry deep_see_crystal = entry("deep_see_crystal", "Deep See Crystal", new Config(DEFAULT_RARITY));
     public static final Entry desert_rose = entry("desert_rose", "Desert Rose", new Config(DEFAULT_RARITY));
@@ -45,7 +46,9 @@ public class QuestItems {
     public static final Entry shackles = entry("shackles", "Shackles", new Config(DEFAULT_RARITY));
     public static final Entry silver_feather = entry("silver_feather", "Silver Feather", new Config(DEFAULT_RARITY));
     public static final Entry skeletal_hand = entry("skeletal_hand", "Skeletal Hand", new Config(DEFAULT_RARITY));
+    public static final Entry steel_heart = entry("steel_heart", "Steel Heart", new Config(DEFAULT_RARITY));
     public static final Entry stone_idol = entry("stone_idol", "Stone Idol", new Config(DEFAULT_RARITY));
+    public static final Entry supercooled_core = entry("supercooled_core", "Supercooled Core", new Config(DEFAULT_RARITY));
     public static final Entry toxic_vial = entry("toxic_vial", "Toxic Vial", new Config(DEFAULT_RARITY));
     public static final Entry tribal_totem = entry("tribal_totem", "Tribal Totem", new Config(DEFAULT_RARITY));
     public static final Entry undead_essence = entry("undead_essence", "Undead Essence", new Config(DEFAULT_RARITY));
@@ -53,6 +56,7 @@ public class QuestItems {
     public static final Entry warden_ears = entry("warden_ears", "Warden Ears", new Config(DEFAULT_RARITY));
     public static final Entry wildfire_essence = entry("wildfire_essence", "Wildfire Essence", new Config(DEFAULT_RARITY));
     public static final Entry wither_ribcage = entry("wither_ribcage", "Wither Ribcage", new Config(DEFAULT_RARITY));
+    public static final Entry wicked_tentacle = entry("wicked_tentacle", "Wicked Tentacle", new Config(DEFAULT_RARITY));
 
     public static void register(Map<String, Config> configs) {
         for (var entry : entries) {
