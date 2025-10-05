@@ -10,7 +10,14 @@ import java.util.ArrayList;
 import java.util.Map;
 
 public class QuestItems {
-    public record Config(Rarity rarity) { }
+    public record Config(Rarity rarity, Boolean fireproof) {
+        public Config(Rarity rarity) {
+            this(rarity, Boolean.TRUE);
+        }
+        public Config {
+            fireproof = (fireproof == null) ? Boolean.TRUE : fireproof;
+        }
+    }
     public static class Holder { Holder() { }; public Holder(Item item) { this.item = item; }; public Item item; }
     public record Entry(Identifier id, String translation, Config defaults, Holder holder) { }
     public static final ArrayList<Entry> entries = new ArrayList<>();
@@ -65,9 +72,12 @@ public class QuestItems {
                 config = entry.defaults;
                 configs.put(entry.id.toString(), config);
             }
-            var item = new Item(new Item.Settings()
-                    .rarity(config.rarity)
-            );
+            var settings = new Item.Settings()
+                    .rarity(config.rarity);
+            if (config.fireproof) {
+                settings.fireproof();
+            }
+            var item = new Item(settings);
             entry.holder.item = item;
             Registry.register(Registries.ITEM, entry.id, item);
         }

@@ -1,3 +1,7 @@
+# 1.0.3
+
+- Quest items are now fireproof by default
+
 # 1.0.2
 
 - Add some new items
