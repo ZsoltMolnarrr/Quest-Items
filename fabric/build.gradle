@@ -25,6 +25,7 @@ architectury {
 
 fabricApi {
     configureDataGeneration() {
+        modId = 'quest_items'
         outputDirectory = project(':common').file('src/main/generated')
     }
 }

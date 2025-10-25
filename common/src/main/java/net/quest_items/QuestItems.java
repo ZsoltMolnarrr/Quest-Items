@@ -37,7 +37,7 @@ public class QuestItems {
     public static final Entry corrupted_grail = entry("corrupted_grail", "Corrupted Grail", new Config(DEFAULT_RARITY));
     public static final Entry crystal_petal = entry("crystal_petal", "Crystal Petal", new Config(DEFAULT_RARITY));
     public static final Entry cursed_crown = entry("cursed_crown", "Cursed Crown", new Config(DEFAULT_RARITY));
-    public static final Entry deep_see_crystal = entry("deep_see_crystal", "Deep See Crystal", new Config(DEFAULT_RARITY));
+    public static final Entry deep_see_crystal = entry("deep_see_crystal", "Deep Sea Crystal", new Config(DEFAULT_RARITY));
     public static final Entry desert_rose = entry("desert_rose", "Desert Rose", new Config(DEFAULT_RARITY));
     public static final Entry evil_codex = entry("evil_codex", "Evil Codex", new Config(DEFAULT_RARITY));
     public static final Entry frozen_grail = entry("frozen_grail", "Frozen Grail", new Config(DEFAULT_RARITY));
