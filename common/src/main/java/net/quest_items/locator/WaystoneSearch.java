@@ -73,8 +73,16 @@ public class WaystoneSearch implements TickWorkers.Worker {
 
     private static final Logger LOGGER = LoggerFactory.getLogger("quest_items/locate_waystone");
 
-    /** Chunk generations requested but not yet completed. Candidates are few, so a small window. */
-    private static final int MAX_IN_FLIGHT = 8;
+    /**
+     * Chunk generations requested but not yet completed. Deliberately tiny: every in-flight
+     * chunk drags its own ~17x17 dependency apron through generation, and in 1.21.1 the chunk
+     * load/save bookkeeping for all of that runs on the main thread. The nearest candidate is
+     * usually a verified waystone piece anyway, so parallelism buys little and costs TPS.
+     */
+    private static final int MAX_IN_FLIGHT = 2;
+
+    /** Per-tick time slice for scan work; one jigsaw assembly also ends the slice. */
+    private static final long SCAN_SLICE_MS = 5;
 
     /**
      * addTicket computes level = FULL(33) - radius, so this (negative) radius yields the level
@@ -157,7 +165,7 @@ public class WaystoneSearch implements TickWorkers.Worker {
         Optional<Waystone> existing = findRegistered();
         if (existing.isPresent()) {
             finished = true;
-            onFound.accept(existing.get());
+            onFound.accept(resolveThroughBlock(existing.get()));
             return;
         }
         warmUpSavedData();
@@ -199,14 +207,25 @@ public class WaystoneSearch implements TickWorkers.Worker {
         // jigsaw assembly) and inspects its pieces for waystone templates — no chunks touched.
         // The scan stops at the first waystone piece found: units are distance-ordered, so the
         // first hit is the nearest structure waystone.
+        //
+        // Work is voluntarily sliced: a few ms of cheap math per tick, and any single jigsaw
+        // assembly ends the slice — the server keeps ticking while the scan runs.
         if (stage == Stage.SCAN) {
             boolean hit = !structureCandidates.isEmpty();
             if (!hit && scanIndex < scanUnits.size()) {
-                processScanUnit(scanUnits.get(scanIndex++));
-                if (scanIndex % 64 == 0) {
+                long sliceEnd = System.currentTimeMillis() + SCAN_SLICE_MS;
+                int assembledBefore = assembledStarts;
+                while (scanIndex < scanUnits.size() && structureCandidates.isEmpty()
+                        && assembledStarts == assembledBefore && System.currentTimeMillis() < sliceEnd) {
+                    processScanUnit(scanUnits.get(scanIndex++));
+                }
+                if (scanIndex % 64 < 8) {
                     onProgressPercent.accept(scanIndex * 60 / Math.max(1, scanUnits.size()));
                 }
-                return true;
+                if (scanIndex < scanUnits.size() && structureCandidates.isEmpty()) {
+                    return false; // slice used up — resume next tick, let the server breathe
+                }
+                hit = !structureCandidates.isEmpty();
             }
             candidates = assembleCandidates();
             LOGGER.info("Structure scan {} in {} ms: {}/{} positions checked, {} starts assembled, "
@@ -288,8 +307,9 @@ public class WaystoneSearch implements TickWorkers.Worker {
                 Optional<Waystone> found = findRegistered().or(this::resolveScanCandidates);
                 if (found.isPresent()) {
                     finished = true;
-                    logFound(found.get());
-                    onFound.accept(found.get());
+                    Waystone resolved = resolveThroughBlock(found.get());
+                    logFound(resolved);
+                    onFound.accept(resolved);
                 }
                 // Otherwise the candidates didn't pan out — resume sweeping next tick.
                 return false;
@@ -298,8 +318,9 @@ public class WaystoneSearch implements TickWorkers.Worker {
             finished = true;
             Optional<Waystone> found = findRegistered().or(this::resolveScanCandidates);
             if (found.isPresent()) {
-                logFound(found.get());
-                onFound.accept(found.get());
+                Waystone resolved = resolveThroughBlock(found.get());
+                logFound(resolved);
+                onFound.accept(resolved);
             } else {
                 LOGGER.info("All {} candidates exhausted, no waystone found ({} ms total)",
                         candidates.size(), System.currentTimeMillis() - searchStartMs);
@@ -320,6 +341,36 @@ public class WaystoneSearch implements TickWorkers.Worker {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    /**
+     * Binds the result to the waystone the BLOCK actually holds, by fully loading its chunk
+     * once and reading the block entity's waystone. This is the identity the player will
+     * interact with forever.
+     *
+     * Activating the registry entry directly is not safe for wilderness waystones: if their
+     * FEATURES-stage chunk never reached disk, the chunk regenerates on the player's arrival,
+     * the waystone feature re-runs and registers a NEW random UUID — the registry entry we
+     * activated becomes an orphan and the player "unlocks" the block's waystone a second time.
+     * Full-loading here locks the block↔UUID binding in (full chunks save reliably) before the
+     * player ever teleports; whatever UUID the block ends up with is the one activated.
+     */
+    private Waystone resolveThroughBlock(Waystone waystone) {
+        if (waystone.getDimension() != world.getRegistryKey()) {
+            return waystone;
+        }
+        BlockPos pos = waystone.getPos();
+        world.getChunk(ChunkSectionPos.getSectionCoord(pos.getX()),
+                ChunkSectionPos.getSectionCoord(pos.getZ()), ChunkStatus.FULL, true);
+        Waystone blockWaystone = WaystonesAPI.getWaystoneAt(world, pos)
+                .filter(Waystone::isValid)
+                .orElse(waystone);
+        if (!blockWaystone.getWaystoneUid().equals(waystone.getWaystoneUid())) {
+            LOGGER.warn("Registry waystone {} at {} does not match the block's waystone {} — "
+                            + "activating the block's (its chunk was likely regenerated; the registry entry is orphaned)",
+                    waystone.getWaystoneUid(), pos.toShortString(), blockWaystone.getWaystoneUid());
+        }
+        return blockWaystone;
     }
 
     private void logFound(Waystone waystone) {
@@ -449,29 +500,34 @@ public class WaystoneSearch implements TickWorkers.Worker {
             if (!inspectedStarts.add(startKey)) {
                 continue;
             }
-            StructureStart start;
-            try {
-                start = structure.createStructureStart(
-                        world.getRegistryManager(),
-                        chunkGenerator,
-                        chunkGenerator.getBiomeSource(),
-                        world.getChunkManager().getNoiseConfig(),
-                        world.getStructureTemplateManager(),
-                        world.getSeed(),
-                        unit.pos(),
-                        0,
-                        world,
-                        structure.getValidBiomes()::contains);
-            } catch (Throwable t) {
-                // A broken third-party structure must not kill the search.
-                continue;
+            List<BlockBox> pieceBoxes = WaystoneTemplates.cachedStartBoxes(startKey);
+            if (pieceBoxes == null) {
+                StructureStart start;
+                try {
+                    start = structure.createStructureStart(
+                            world.getRegistryManager(),
+                            chunkGenerator,
+                            chunkGenerator.getBiomeSource(),
+                            world.getChunkManager().getNoiseConfig(),
+                            world.getStructureTemplateManager(),
+                            world.getSeed(),
+                            unit.pos(),
+                            0,
+                            world,
+                            structure.getValidBiomes()::contains);
+                } catch (Throwable t) {
+                    // A broken third-party structure must not kill the search.
+                    continue;
+                }
+                if (!start.hasChildren()) {
+                    continue;
+                }
+                assembledStarts++;
+                pieceBoxes = waystoneTemplates.waystonePieceBoxes(start);
+                WaystoneTemplates.storeStartBoxes(startKey, pieceBoxes);
             }
-            if (!start.hasChildren()) {
-                continue;
-            }
-            assembledStarts++;
             long reach = (long) radiusBlocks + 12;
-            for (BlockBox box : waystoneTemplates.waystonePieceBoxes(start)) {
+            for (BlockBox box : pieceBoxes) {
                 BlockPos boxCenter = box.getCenter();
                 long distSq = horizontalDistanceSq(boxCenter);
                 if (distSq > reach * reach) {

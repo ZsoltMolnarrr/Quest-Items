@@ -41,6 +41,8 @@ class WaystoneTemplates {
     private static final StructurePlacementData PLACEMENT_DATA = new StructurePlacementData();
 
     private static final Map<Identifier, Boolean> TEMPLATE_CACHE = new HashMap<>();
+    /** Waystone-piece boxes of assembled structure starts, keyed "structureId@chunkLong". */
+    private static final Map<String, List<BlockBox>> START_CACHE = new HashMap<>();
     private static Object cacheOwner;
 
     private final StructureTemplateManager templateManager;
@@ -50,6 +52,7 @@ class WaystoneTemplates {
         this.templateManager = world.getStructureTemplateManager();
         if (cacheOwner != world.getServer()) {
             TEMPLATE_CACHE.clear();
+            START_CACHE.clear();
             cacheOwner = world.getServer();
         }
         List<Block> blocks = new ArrayList<>();
@@ -63,6 +66,16 @@ class WaystoneTemplates {
 
     static int cachedTemplateCount() {
         return TEMPLATE_CACHE.size();
+    }
+
+    /** Cached piece boxes for an assembled start, or null if this start was never assembled. */
+    static List<BlockBox> cachedStartBoxes(String startKey) {
+        return START_CACHE.get(startKey);
+    }
+
+    /** Remember an assembled start's waystone pieces so later searches skip its assembly. */
+    static void storeStartBoxes(String startKey, List<BlockBox> boxes) {
+        START_CACHE.put(startKey, boxes);
     }
 
     /** Bounding boxes of this structure start's pieces whose template contains a waystone block. */
