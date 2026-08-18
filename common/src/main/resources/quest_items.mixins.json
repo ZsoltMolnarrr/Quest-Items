@@ -6,7 +6,9 @@
   "client": [
   ],
   "mixins": [
-    "PortalRoomMixin"
+    "PortalRoomMixin",
+    "SimpleStructurePieceAccessor",
+    "SinglePoolElementAccessor"
   ],
   "injectors": {
     "defaultRequire": 1
