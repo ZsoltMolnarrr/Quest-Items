@@ -35,6 +35,18 @@ public class QuestItemsDataGenerator implements DataGeneratorEntrypoint {
                 translationBuilder.add("item." + id.getNamespace() + "." + id.getPath(), entry.translation());
                 // translationBuilder.add("item." + id.getNamespace() + "." + id.getPath() + ".description", entry.description());
             });
+
+            var locatePrefix = "commands.quest_items.locate_waystone.";
+            translationBuilder.add(locatePrefix + "searching", "Seeking the nearest %s within %s blocks…");
+            translationBuilder.add(locatePrefix + "structure_found", "%s located at %s — seeking a waystone nearby…");
+            translationBuilder.add(locatePrefix + "surveying", "Surveying uncharted lands for waystones… %s%%");
+            translationBuilder.add(locatePrefix + "unlocked", "✦ New waystone unlocked: %s — near %s");
+            translationBuilder.add(locatePrefix + "already_unlocked", "✦ Waystone %s is already unlocked — it stands near %s");
+            translationBuilder.add(locatePrefix + "no_waystone", "✧ %s located at %s, but no waystone was found within %s blocks");
+            translationBuilder.add(locatePrefix + "no_structure", "✧ No %s could be found within %s blocks");
+            translationBuilder.add(locatePrefix + "busy", "A waystone search is already underway for %s");
+            translationBuilder.add(locatePrefix + "player_offline", "Waystone %s was found near %s, but the player is no longer online to unlock it");
+            translationBuilder.add(locatePrefix + "unnamed", "Unnamed Waystone");
         }
     }
 

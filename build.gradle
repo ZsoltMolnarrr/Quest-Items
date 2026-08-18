@@ -1,5 +1,5 @@
 plugins {
-    id 'dev.architectury.loom' version '1.7-SNAPSHOT' apply false
+    id 'dev.architectury.loom' version '1.11-SNAPSHOT' apply false
     id 'architectury-plugin' version '3.4-SNAPSHOT'
     id 'com.github.johnrengelman.shadow' version '8.1.1' apply false
 }
@@ -44,6 +44,10 @@ subprojects {
         // if it is present.
         // If you remove this line, sources will not be generated.
         withSourcesJar()
+
+        toolchain {
+            languageVersion = JavaLanguageVersion.of(21)
+        }
 
         sourceCompatibility = JavaVersion.VERSION_21
         targetCompatibility = JavaVersion.VERSION_21

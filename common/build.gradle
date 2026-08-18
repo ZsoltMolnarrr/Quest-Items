@@ -4,6 +4,7 @@ architectury {
 
 repositories {
     maven { url 'https://jitpack.io' }
+    maven { url 'https://maven.twelveiterations.com/repository/maven-public/' }
 }
 
 dependencies {
@@ -13,6 +14,11 @@ dependencies {
     modImplementation "net.fabricmc:fabric-loader:$rootProject.fabric_loader_version"
 
     implementation ("com.github.ZsoltMolnarrr:TinyConfig:${project.tiny_config_version}")
+
+    // Waystones API, compile-only. The modpack provides Waystones at runtime;
+    // all classes touching it are only loaded behind an isModLoaded("waystones") guard.
+    modCompileOnly("net.blay09.mods:waystones-fabric:${project.waystones_version}") { transitive = false }
+    modCompileOnly("net.blay09.mods:balm-fabric:${project.balm_version}") { transitive = false }
 }
 
 sourceSets {
