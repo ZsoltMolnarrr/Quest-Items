@@ -19,9 +19,9 @@ import net.quest_items.mixin.SimpleStructurePieceAccessor;
 import net.quest_items.mixin.SinglePoolElementAccessor;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Answers "does this structure piece contain a waystone?" from data alone — no terrain.
@@ -40,9 +40,11 @@ class WaystoneTemplates {
 
     private static final StructurePlacementData PLACEMENT_DATA = new StructurePlacementData();
 
-    private static final Map<Identifier, Boolean> TEMPLATE_CACHE = new HashMap<>();
+    // Concurrent: the scan runs on a worldgen worker thread while the main thread may also
+    // inspect pieces during candidate resolution.
+    private static final Map<Identifier, Boolean> TEMPLATE_CACHE = new ConcurrentHashMap<>();
     /** Waystone-piece boxes of assembled structure starts, keyed "structureId@chunkLong". */
-    private static final Map<String, List<BlockBox>> START_CACHE = new HashMap<>();
+    private static final Map<String, List<BlockBox>> START_CACHE = new ConcurrentHashMap<>();
     private static Object cacheOwner;
 
     private final StructureTemplateManager templateManager;

@@ -16,6 +16,7 @@ import net.minecraft.registry.RegistryKeys;
 import net.minecraft.structure.StructureStart;
 import net.minecraft.util.Identifier;
 import net.minecraft.util.math.BlockBox;
+import net.minecraft.world.biome.source.BiomeCoords;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.ChunkPos;
 import net.minecraft.util.math.ChunkSectionPos;
@@ -81,8 +82,8 @@ public class WaystoneSearch implements TickWorkers.Worker {
      */
     private static final int MAX_IN_FLIGHT = 2;
 
-    /** Per-tick time slice for scan work; one jigsaw assembly also ends the slice. */
-    private static final long SCAN_SLICE_MS = 5;
+    /** Give up on a hung background scan (broken third-party structure code) after 2 minutes. */
+    private static final int SCAN_TIMEOUT_TICKS = 20 * 120;
 
     /**
      * addTicket computes level = FULL(33) - radius, so this (negative) radius yields the level
@@ -125,8 +126,17 @@ public class WaystoneSearch implements TickWorkers.Worker {
     private long stageStartMs;
 
     private List<ScanUnit> scanUnits = List.of();
-    private int scanIndex = 0;
-    private int assembledStarts = 0;
+    /**
+     * The scan runs on a worldgen worker thread (createStructureStart is what vanilla executes
+     * on those threads during STRUCTURE_STARTS anyway) — the main thread only polls the future.
+     * structureCandidates is written exclusively by the scan thread and read on the main thread
+     * only after the future completes (the completion is the happens-before edge).
+     */
+    private CompletableFuture<Void> scanFuture;
+    private volatile boolean scanAbandoned = false;
+    private volatile int scannedUnits = 0;
+    private volatile int assembledStarts = 0;
+    private int scanWaitTicks = 0;
     private final Set<String> inspectedStarts = new HashSet<>();
     private final List<Candidate> structureCandidates = new ArrayList<>();
 
@@ -175,9 +185,28 @@ public class WaystoneSearch implements TickWorkers.Worker {
         waystoneTemplates = new WaystoneTemplates(world);
         scanUnits = buildScanUnits();
         LOGGER.info("Waystone search around {} (radius {}): no registered waystone in range; "
-                        + "{} structure placement positions to scan nearest-first ({} templates cached)",
+                        + "{} structure placement positions to scan nearest-first off-thread ({} templates cached)",
                 center.toShortString(), radiusBlocks, scanUnits.size(), WaystoneTemplates.cachedTemplateCount());
+        scanFuture = CompletableFuture.runAsync(this::runScan, net.minecraft.util.Util.getMainWorkerExecutor());
         TickWorkers.add(this);
+    }
+
+    /** Runs on a worldgen worker thread; touches no chunks and no Waystones saved data. */
+    private void runScan() {
+        try {
+            for (ScanUnit unit : scanUnits) {
+                if (scanAbandoned || finished) {
+                    return;
+                }
+                processScanUnit(unit);
+                scannedUnits++;
+                if (!structureCandidates.isEmpty()) {
+                    return; // units are distance-ordered: first hit is the nearest structure waystone
+                }
+            }
+        } catch (Throwable t) {
+            LOGGER.error("Structure scan failed; continuing with wilderness candidates only", t);
+        }
     }
 
     /**
@@ -202,36 +231,30 @@ public class WaystoneSearch implements TickWorkers.Worker {
 
     @Override
     public boolean doWork() {
-        // Stage 1: scan structure placement positions nearest-first. Each unit computes the
-        // structure's start locally (biome-mismatches reject cheaply; only real instances pay
-        // jigsaw assembly) and inspects its pieces for waystone templates — no chunks touched.
-        // The scan stops at the first waystone piece found: units are distance-ordered, so the
-        // first hit is the nearest structure waystone.
-        //
-        // Work is voluntarily sliced: a few ms of cheap math per tick, and any single jigsaw
-        // assembly ends the slice — the server keeps ticking while the scan runs.
+        // Stage 1: the scan runs on a worker thread (see runScan); here we only poll its future
+        // and keep the progress bar moving — near-zero main-thread cost.
         if (stage == Stage.SCAN) {
-            boolean hit = !structureCandidates.isEmpty();
-            if (!hit && scanIndex < scanUnits.size()) {
-                long sliceEnd = System.currentTimeMillis() + SCAN_SLICE_MS;
-                int assembledBefore = assembledStarts;
-                while (scanIndex < scanUnits.size() && structureCandidates.isEmpty()
-                        && assembledStarts == assembledBefore && System.currentTimeMillis() < sliceEnd) {
-                    processScanUnit(scanUnits.get(scanIndex++));
+            if (!scanFuture.isDone()) {
+                if (++scanWaitTicks % 20 == 0) {
+                    onProgressPercent.accept(Math.min(59, scannedUnits * 60 / Math.max(1, scanUnits.size())));
                 }
-                if (scanIndex % 64 < 8) {
-                    onProgressPercent.accept(scanIndex * 60 / Math.max(1, scanUnits.size()));
+                if (scanWaitTicks > SCAN_TIMEOUT_TICKS) {
+                    LOGGER.warn("Structure scan timed out after {}/{} units — continuing with wilderness candidates only",
+                            scannedUnits, scanUnits.size());
+                    scanAbandoned = true;
+                    // structureCandidates may still be mid-write on the scan thread; don't read it.
+                    candidates = assembleCandidates(List.of());
+                    stage = Stage.GENERATE;
+                    stageStartMs = System.currentTimeMillis();
                 }
-                if (scanIndex < scanUnits.size() && structureCandidates.isEmpty()) {
-                    return false; // slice used up — resume next tick, let the server breathe
-                }
-                hit = !structureCandidates.isEmpty();
+                return false;
             }
-            candidates = assembleCandidates();
+            boolean hit = !structureCandidates.isEmpty();
+            candidates = assembleCandidates(structureCandidates);
             LOGGER.info("Structure scan {} in {} ms: {}/{} positions checked, {} starts assembled, "
                             + "{} waystone-piece chunks; {} total candidate chunks incl. wilderness grid",
                     hit ? "hit" : "exhausted", System.currentTimeMillis() - stageStartMs,
-                    scanIndex, scanUnits.size(), assembledStarts,
+                    scannedUnits, scanUnits.size(), assembledStarts,
                     structureCandidates.size(), candidates.size());
             if (candidates.isEmpty()) {
                 LOGGER.info("No candidate chunks at all — reporting no waystone ({} ms total)",
@@ -425,6 +448,22 @@ public class WaystoneSearch implements TickWorkers.Worker {
     }
 
     /**
+     * Heuristic pre-filter: samples the biome at the position (surface-ish and underground Y)
+     * against the structure's valid-biome list — pure noise math, far cheaper than the anchor
+     * computation inside createStructureStart. A rare false negative here just means the
+     * wilderness grid answers instead.
+     */
+    private boolean biomePlausible(Structure structure, ChunkPos pos) {
+        var validBiomes = structure.getValidBiomes();
+        var biomeSource = world.getChunkManager().getChunkGenerator().getBiomeSource();
+        var sampler = world.getChunkManager().getNoiseConfig().getMultiNoiseSampler();
+        int bx = BiomeCoords.fromBlock(pos.getStartX() + 8);
+        int bz = BiomeCoords.fromBlock(pos.getStartZ() + 8);
+        return validBiomes.contains(biomeSource.getBiome(bx, BiomeCoords.fromBlock(96), bz, sampler))
+                || validBiomes.contains(biomeSource.getBiome(bx, BiomeCoords.fromBlock(-32), bz, sampler));
+    }
+
+    /**
      * Enumerates the placement-grid positions of EVERY structure type within reach — pure seed
      * math per position, exactly how structure location works. Structure footprints sprawl, so
      * start chunks slightly beyond the waystone radius are included; actual waystone pieces are
@@ -502,6 +541,12 @@ public class WaystoneSearch implements TickWorkers.Worker {
             }
             List<BlockBox> pieceBoxes = WaystoneTemplates.cachedStartBoxes(startKey);
             if (pieceBoxes == null) {
+                // Cheap biome plausibility check first: createStructureStart computes its anchor
+                // position (a noise column sample, ~1ms) BEFORE validating the biome, which is
+                // the wrong order for a mass scan. Two quick biome samples reject most units.
+                if (!biomePlausible(structure, unit.pos())) {
+                    continue;
+                }
                 StructureStart start;
                 try {
                     start = structure.createStructureStart(
@@ -543,10 +588,11 @@ public class WaystoneSearch implements TickWorkers.Worker {
     }
 
     /** Structure-hosted candidates first (per preference), wilderness grid after; both nearest-first. */
-    private List<ChunkPos> assembleCandidates() {
-        structureCandidates.sort(Comparator.comparingLong(Candidate::distSq));
+    private List<ChunkPos> assembleCandidates(List<Candidate> structureHits) {
+        List<Candidate> sorted = new ArrayList<>(structureHits);
+        sorted.sort(Comparator.comparingLong(Candidate::distSq));
         LinkedHashSet<ChunkPos> ordered = new LinkedHashSet<>();
-        for (Candidate candidate : structureCandidates) {
+        for (Candidate candidate : sorted) {
             ordered.add(candidate.pos());
         }
         ordered.addAll(computeWildernessCandidates());
