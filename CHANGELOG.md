@@ -1,3 +1,8 @@
+# 1.1.0
+
+- Add some translations
+- Add waystone finder command
+
 # 1.0.4
 
 - Fix some item names
