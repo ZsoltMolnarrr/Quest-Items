@@ -26,6 +26,7 @@ public final class TickWorkers {
 
     private static final List<Worker> workers = new ArrayList<>();
     private static long startTime = -1;
+    private static long lastTickWorkMs = 0;
     private static int index = 0;
 
     private TickWorkers() {}
@@ -34,7 +35,18 @@ public final class TickWorkers {
         startTime = System.currentTimeMillis();
     }
 
+    /**
+     * How long the server's own work took last tick (measured tickStart → tickEnd, excluding
+     * the worker budget below). Under ~45ms means the tick had leftover headroom; workers use
+     * this to pace operations whose cost lands on the main thread outside their control
+     * (chunk loads/saves scheduled by the chunk system).
+     */
+    public static long lastTickWorkMs() {
+        return lastTickWorkMs;
+    }
+
     public static void tickEnd() {
+        lastTickWorkMs = startTime >= 0 ? System.currentTimeMillis() - startTime : 0;
         index = 0;
         Worker task = getNext();
         if (task == null) {

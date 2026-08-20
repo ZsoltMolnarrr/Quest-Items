@@ -49,6 +49,7 @@ configurations {
 
 repositories {
     maven { url 'https://jitpack.io' }
+    maven { url 'https://maven.twelveiterations.com/repository/maven-public/' }
 }
 
 dependencies {
@@ -56,6 +57,12 @@ dependencies {
 
     // Fabric API. This is technically optional, but you probably want it anyway.
     modImplementation "net.fabricmc.fabric-api:fabric-api:$rootProject.fabric_api_version"
+
+    // Waystones in the DEV runtime only: the Architectury dev transformer must be able to
+    // resolve the compile-only Waystones classes referenced by common code, and this also makes
+    // /quest_items locate_waystone testable in dev. Not bundled; production stays optional.
+    modLocalRuntime("net.blay09.mods:waystones-fabric:${rootProject.waystones_version}") { transitive = false }
+    modLocalRuntime("net.blay09.mods:balm-fabric:${rootProject.balm_version}") { transitive = false }
 
     common(project(path: ':common', configuration: 'namedElements')) { transitive false }
     shadowBundle project(path: ':common', configuration: 'transformProductionFabric')

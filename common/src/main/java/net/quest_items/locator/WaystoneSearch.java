@@ -31,6 +31,7 @@ import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -75,12 +76,30 @@ public class WaystoneSearch implements TickWorkers.Worker {
     private static final Logger LOGGER = LoggerFactory.getLogger("quest_items/locate_waystone");
 
     /**
-     * Chunk generations requested but not yet completed. Deliberately tiny: every in-flight
-     * chunk drags its own ~17x17 dependency apron through generation, and in 1.21.1 the chunk
-     * load/save bookkeeping for all of that runs on the main thread. The nearest candidate is
-     * usually a verified waystone piece anyway, so parallelism buys little and costs TPS.
+     * Chunk generations requested but not yet completed. Exactly one: every in-flight chunk
+     * drags its own ~17x17 dependency apron through generation, and in 1.21.1 the chunk
+     * load/save bookkeeping for all of that runs on the main thread outside our control. The
+     * nearest candidate is usually a verified waystone piece anyway, so parallelism buys
+     * little and costs TPS.
      */
-    private static final int MAX_IN_FLIGHT = 2;
+    private static final int MAX_IN_FLIGHT = 1;
+
+    /** A tick whose own work stayed under this had leftover headroom; only then do we add load. */
+    private static final long HEALTHY_TICK_MS = 45;
+
+    /** On a chronically busy server, still issue the next chunk request after this many ticks. */
+    private static final int ISSUE_FORCE_TICKS = 40;
+
+    /**
+     * Completed chunks keep their tickets and are released by DECAY (one level-step per healthy
+     * tick): dropping a ticket outright orphans its whole apron at once, and vanilla's
+     * unloadChunks force-saves up to 200 chunks per tick IGNORING the time budget — the burst
+     * that used to freeze the server. Stepping the ticket level outward sheds only an outer
+     * ring of holders at a time, so unload-saves trickle. Above the soft cap, decay proceeds
+     * even on busy ticks (memory guard).
+     */
+    private static final int TICKET_DECAY_STEP = 3;
+    private static final int RETAINED_SOFT_CAP = 4;
 
     /** Give up on a hung background scan (broken third-party structure code) after 2 minutes. */
     private static final int SCAN_TIMEOUT_TICKS = 20 * 120;
@@ -117,7 +136,10 @@ public class WaystoneSearch implements TickWorkers.Worker {
 
     private record Candidate(ChunkPos pos, long distSq) {}
 
-    private enum Stage { SCAN, GENERATE }
+    private enum Stage { SCAN, GENERATE, RESOLVE }
+
+    /** Ticket radius 0 = level 33 = FULL, used by the RESOLVE stage's async full-loads. */
+    private static final int RESOLVE_TICKET_RADIUS = 0;
 
     private Registry<Structure> structureRegistry;
     private WaystoneTemplates waystoneTemplates;
@@ -135,10 +157,36 @@ public class WaystoneSearch implements TickWorkers.Worker {
     private CompletableFuture<Void> scanFuture;
     private volatile boolean scanAbandoned = false;
     private volatile int scannedUnits = 0;
+    private volatile int totalScanUnits = 0;
     private volatile int assembledStarts = 0;
     private int scanWaitTicks = 0;
     private final Set<String> inspectedStarts = new HashSet<>();
     private final List<Candidate> structureCandidates = new ArrayList<>();
+
+    /**
+     * RESOLVE: binds the result to the block by fully loading the winning chunk ASYNCHRONOUSLY
+     * (a blocking FULL load here previously froze the main thread for many seconds — full
+     * promotion drags lighting plus its whole dependency apron). Whatever waystone the block
+     * holds after the load is the identity activated (see the double-unlock notes).
+     */
+    private Waystone chosenWaystone;
+    private final ArrayDeque<BlockPos> resolveQueue = new ArrayDeque<>();
+    private Pending resolvePending;
+    private BlockPos resolveTargetPos;
+    private boolean sweepExhausted = false;
+
+    private static final class RetainedTicket {
+        final ChunkPos pos;
+        int radius;
+
+        RetainedTicket(ChunkPos pos, int radius) {
+            this.pos = pos;
+            this.radius = radius;
+        }
+    }
+
+    private final ArrayDeque<RetainedTicket> retainedTickets = new ArrayDeque<>();
+    private int issueWaitTicks = 0;
 
     private List<ChunkPos> candidates = List.of();
     private int candidateIndex = 0;
@@ -172,29 +220,43 @@ public class WaystoneSearch implements TickWorkers.Worker {
     public void start() {
         // findRegistered() also loads the waystone registry into the saved-data cache on the
         // main thread, before any worldgen thread can race the (non-thread-safe) lazy load.
-        Optional<Waystone> existing = findRegistered();
-        if (existing.isPresent()) {
-            finished = true;
-            onFound.accept(resolveThroughBlock(existing.get()));
-            return;
-        }
-        warmUpSavedData();
         searchStartMs = System.currentTimeMillis();
         stageStartMs = searchStartMs;
+        warmUpSavedData();
         structureRegistry = world.getRegistryManager().get(RegistryKeys.STRUCTURE);
         waystoneTemplates = new WaystoneTemplates(world);
-        scanUnits = buildScanUnits();
-        LOGGER.info("Waystone search around {} (radius {}): no registered waystone in range; "
-                        + "{} structure placement positions to scan nearest-first off-thread ({} templates cached)",
-                center.toShortString(), radiusBlocks, scanUnits.size(), WaystoneTemplates.cachedTemplateCount());
+
+        Optional<Waystone> existing = findRegistered();
+        if (existing.isPresent()) {
+            // Bind to the block through the async RESOLVE stage — no blocking chunk load here.
+            chosenWaystone = existing.get();
+            resolveQueue.add(chosenWaystone.getPos());
+            stage = Stage.RESOLVE;
+            LOGGER.info("Waystone search around {} (radius {}): registered waystone already in range at {}; binding to block",
+                    center.toShortString(), radiusBlocks, chosenWaystone.getPos().toShortString());
+            TickWorkers.add(this);
+            return;
+        }
+        LOGGER.info("Waystone search around {} (radius {}): no registered waystone in range; scanning structures off-thread",
+                center.toShortString(), radiusBlocks);
         scanFuture = CompletableFuture.runAsync(this::runScan, net.minecraft.util.Util.getMainWorkerExecutor());
         TickWorkers.add(this);
     }
 
-    /** Runs on a worldgen worker thread; touches no chunks and no Waystones saved data. */
+    /**
+     * Runs on a worldgen worker thread; touches no chunks and no Waystones saved data.
+     * Also builds the scan-unit list here — enumerating and sorting tens of thousands of
+     * placement positions (including modded per-chunk placement checks) is itself too heavy
+     * for the main thread.
+     */
     private void runScan() {
         try {
-            for (ScanUnit unit : scanUnits) {
+            List<ScanUnit> units = buildScanUnits();
+            scanUnits = units;
+            totalScanUnits = units.size();
+            LOGGER.info("Structure scan: {} placement positions to check nearest-first ({} templates cached)",
+                    units.size(), WaystoneTemplates.cachedTemplateCount());
+            for (ScanUnit unit : units) {
                 if (scanAbandoned || finished) {
                     return;
                 }
@@ -226,17 +288,22 @@ public class WaystoneSearch implements TickWorkers.Worker {
 
     @Override
     public boolean hasWork() {
-        return !finished;
+        // Stays alive after the search completes until ticket decay has cooled everything down.
+        return !finished || !retainedTickets.isEmpty();
     }
 
     @Override
     public boolean doWork() {
+        tickDecay();
+        if (finished) {
+            return false;
+        }
         // Stage 1: the scan runs on a worker thread (see runScan); here we only poll its future
         // and keep the progress bar moving — near-zero main-thread cost.
         if (stage == Stage.SCAN) {
             if (!scanFuture.isDone()) {
                 if (++scanWaitTicks % 20 == 0) {
-                    onProgressPercent.accept(Math.min(59, scannedUnits * 60 / Math.max(1, scanUnits.size())));
+                    onProgressPercent.accept(Math.min(59, scannedUnits * 60 / Math.max(1, totalScanUnits)));
                 }
                 if (scanWaitTicks > SCAN_TIMEOUT_TICKS) {
                     LOGGER.warn("Structure scan timed out after {}/{} units — continuing with wilderness candidates only",
@@ -268,13 +335,19 @@ public class WaystoneSearch implements TickWorkers.Worker {
             return true;
         }
 
+        if (stage == Stage.RESOLVE) {
+            return doResolveWork();
+        }
+
         // Stage 2: generate candidate chunks and detect the waystone.
         // Collect completed chunks: release their tickets and palette-scan them for waystone blocks.
         int completed = 0;
         for (int i = inFlight.size() - 1; i >= 0; i--) {
             Pending pending = inFlight.get(i);
             if (pending.future().isDone()) {
-                world.getChunkManager().removeTicket(TICKET, pending.pos(), TICKET_RADIUS, pending.pos());
+                // The ticket is NOT released here — it enters the decay queue so its apron
+                // unloads gradually instead of as one forced-save burst.
+                retainedTickets.add(new RetainedTicket(pending.pos(), TICKET_RADIUS));
                 inFlight.remove(i);
                 completed++;
                 Chunk chunk = getResult(pending.future());
@@ -308,15 +381,14 @@ public class WaystoneSearch implements TickWorkers.Worker {
             draining = true;
         }
 
-        if (!draining) {
-            // Top the in-flight window back up; the chunk system generates these in parallel.
-            // The ticket must be added before requesting the future so the holder never sits
-            // without level support once the internal UNKNOWN ticket (1-tick expiry) lapses.
-            while (inFlight.size() < MAX_IN_FLIGHT) {
-                ChunkPos next = nextPosition();
-                if (next == null) {
-                    break;
-                }
+        if (!draining && inFlight.size() < MAX_IN_FLIGHT && canIssueNow()) {
+            // Issue the next candidate — one at a time, and only when the last tick had
+            // headroom, because the chunk system schedules loads/saves for the whole apron
+            // onto the main thread regardless of how we request the chunk. The ticket is
+            // added before requesting the future so the holder never sits without level
+            // support once the internal UNKNOWN ticket (1-tick expiry) lapses.
+            ChunkPos next = nextPosition();
+            if (next != null) {
                 world.getChunkManager().addTicket(TICKET, next, TICKET_RADIUS, next);
                 var future = world.getChunkManager()
                         .getChunkFutureSyncOnMainThread(next.x, next.z, ChunkStatus.FEATURES, true);
@@ -327,33 +399,66 @@ public class WaystoneSearch implements TickWorkers.Worker {
         if (inFlight.isEmpty()) {
             if (draining) {
                 draining = false;
-                Optional<Waystone> found = findRegistered().or(this::resolveScanCandidates);
-                if (found.isPresent()) {
-                    finished = true;
-                    Waystone resolved = resolveThroughBlock(found.get());
-                    logFound(resolved);
-                    onFound.accept(resolved);
-                }
-                // Otherwise the candidates didn't pan out — resume sweeping next tick.
+                // A hit or scan candidates exist — bind to the block asynchronously.
+                // If enterResolve finds nothing after all, sweeping resumes next tick.
+                enterResolve();
                 return false;
             }
-            // Window empty right after topping up: the whole radius has been swept.
-            finished = true;
-            Optional<Waystone> found = findRegistered().or(this::resolveScanCandidates);
-            if (found.isPresent()) {
-                Waystone resolved = resolveThroughBlock(found.get());
-                logFound(resolved);
-                onFound.accept(resolved);
-            } else {
-                LOGGER.info("All {} candidates exhausted, no waystone found ({} ms total)",
-                        candidates.size(), System.currentTimeMillis() - searchStartMs);
-                onExhausted.run();
+            if (candidateIndex >= candidates.size()) {
+                // Nothing in flight and no candidates left: the whole radius has been swept.
+                sweepExhausted = true;
+                if (!enterResolve()) {
+                    finished = true;
+                    LOGGER.info("All {} candidates exhausted, no waystone found ({} ms total)",
+                            candidates.size(), System.currentTimeMillis() - searchStartMs);
+                    onExhausted.run();
+                }
             }
+            // else: waiting for tick headroom before issuing the next candidate.
             return false;
         }
 
         // One poll per tick is enough; the real work happens on the chunk system's threads.
         return false;
+    }
+
+    /**
+     * Issue-pacing: true when the last tick had leftover headroom. On a server that never gets
+     * under the threshold, force an issue every {@link #ISSUE_FORCE_TICKS} ticks so the search
+     * still progresses.
+     */
+    private boolean canIssueNow() {
+        if (TickWorkers.lastTickWorkMs() <= HEALTHY_TICK_MS || ++issueWaitTicks >= ISSUE_FORCE_TICKS) {
+            issueWaitTicks = 0;
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Gradually releases retained chunk tickets, one level-step on one ticket per call —
+     * and only on ticks with headroom (unless too many tickets have piled up). Each step
+     * raises the ticket's level (radius more negative), shedding an outer ring of apron
+     * holders whose unload-saves land on the main thread; small rings keep vanilla's
+     * forced-unload path from producing multi-second ticks.
+     */
+    private void tickDecay() {
+        if (retainedTickets.isEmpty()) {
+            return;
+        }
+        boolean healthy = TickWorkers.lastTickWorkMs() <= HEALTHY_TICK_MS;
+        if (!healthy && retainedTickets.size() <= RETAINED_SOFT_CAP) {
+            return;
+        }
+        RetainedTicket ticket = retainedTickets.poll();
+        world.getChunkManager().removeTicket(TICKET, ticket.pos, ticket.radius, ticket.pos);
+        ticket.radius -= TICKET_DECAY_STEP;
+        int newLevel = ChunkLevels.getLevelFromType(ChunkLevelType.FULL) - ticket.radius;
+        if (newLevel < ChunkLevels.INACCESSIBLE) {
+            world.getChunkManager().addTicket(TICKET, ticket.pos, ticket.radius, ticket.pos);
+            retainedTickets.add(ticket); // rotate: next call steps the next ticket
+        }
+        // else: fully released — the remaining holders drain within one small ring.
     }
 
     @Nullable
@@ -367,33 +472,99 @@ public class WaystoneSearch implements TickWorkers.Worker {
     }
 
     /**
-     * Binds the result to the waystone the BLOCK actually holds, by fully loading its chunk
-     * once and reading the block entity's waystone. This is the identity the player will
-     * interact with forever.
+     * Prepares the RESOLVE stage: if the registry has a hit, its chunk gets fully loaded so the
+     * result can be bound to the waystone the BLOCK actually holds (activating the registry
+     * entry directly is unsafe for wilderness waystones — if their FEATURES-stage chunk never
+     * reached disk, it regenerates on the player's arrival, the feature re-runs with a NEW
+     * random UUID, and the player "unlocks" the block's waystone a second time). Otherwise
+     * palette-scanned candidate positions are full-loaded so their block entities register.
      *
-     * Activating the registry entry directly is not safe for wilderness waystones: if their
-     * FEATURES-stage chunk never reached disk, the chunk regenerates on the player's arrival,
-     * the waystone feature re-runs and registers a NEW random UUID — the registry entry we
-     * activated becomes an orphan and the player "unlocks" the block's waystone a second time.
-     * Full-loading here locks the block↔UUID binding in (full chunks save reliably) before the
-     * player ever teleports; whatever UUID the block ends up with is the one activated.
+     * @return false when there is nothing to resolve (caller resumes sweeping or exhausts).
      */
-    private Waystone resolveThroughBlock(Waystone waystone) {
-        if (waystone.getDimension() != world.getRegistryKey()) {
-            return waystone;
+    private boolean enterResolve() {
+        resolveQueue.clear();
+        Optional<Waystone> hit = findRegistered();
+        if (hit.isPresent()) {
+            chosenWaystone = hit.get();
+            resolveQueue.add(chosenWaystone.getPos());
+        } else if (!scanCandidates.isEmpty()) {
+            scanCandidates.sort(Comparator.comparingLong(this::horizontalDistanceSq));
+            resolveQueue.addAll(scanCandidates);
+            scanCandidates.clear();
+        } else {
+            return false;
         }
-        BlockPos pos = waystone.getPos();
-        world.getChunk(ChunkSectionPos.getSectionCoord(pos.getX()),
-                ChunkSectionPos.getSectionCoord(pos.getZ()), ChunkStatus.FULL, true);
-        Waystone blockWaystone = WaystonesAPI.getWaystoneAt(world, pos)
-                .filter(Waystone::isValid)
-                .orElse(waystone);
-        if (!blockWaystone.getWaystoneUid().equals(waystone.getWaystoneUid())) {
-            LOGGER.warn("Registry waystone {} at {} does not match the block's waystone {} — "
-                            + "activating the block's (its chunk was likely regenerated; the registry entry is orphaned)",
-                    waystone.getWaystoneUid(), pos.toShortString(), blockWaystone.getWaystoneUid());
+        stage = Stage.RESOLVE;
+        onProgressPercent.accept(99);
+        return true;
+    }
+
+    /** Full-loads the queued chunks asynchronously (one at a time), then delivers the result. */
+    private boolean doResolveWork() {
+        if (resolvePending == null) {
+            if (!resolveQueue.isEmpty() && !canIssueNow()) {
+                return false; // wait for tick headroom before the next full-load
+            }
+            BlockPos next = resolveQueue.poll();
+            if (next == null) {
+                // Candidates failed to produce a registered waystone.
+                if (sweepExhausted) {
+                    finished = true;
+                    LOGGER.info("All candidates exhausted, no waystone found ({} ms total)",
+                            System.currentTimeMillis() - searchStartMs);
+                    onExhausted.run();
+                } else {
+                    stage = Stage.GENERATE; // resume sweeping
+                }
+                return false;
+            }
+            ChunkPos chunkPos = new ChunkPos(next);
+            world.getChunkManager().addTicket(TICKET, chunkPos, RESOLVE_TICKET_RADIUS, chunkPos);
+            var future = world.getChunkManager()
+                    .getChunkFutureSyncOnMainThread(chunkPos.x, chunkPos.z, ChunkStatus.FULL, true);
+            resolvePending = new Pending(chunkPos, future);
+            resolveTargetPos = next;
+            return false;
         }
-        return blockWaystone;
+        if (!resolvePending.future().isDone()) {
+            if (++ticksWithoutProgress > STALL_TICKS) {
+                LOGGER.warn("Resolve full-load of {} stalled; delivering best-known result", resolvePending.pos());
+                finishStalled();
+            }
+            return false;
+        }
+        ticksWithoutProgress = 0;
+        Pending done = resolvePending;
+        resolvePending = null;
+        resolveTargetPos = null;
+
+        if (chosenWaystone != null) {
+            // The chunk holding the chosen waystone is now fully loaded: bind to the block.
+            Waystone bound = WaystonesAPI.getWaystoneAt(world, chosenWaystone.getPos())
+                    .filter(Waystone::isValid)
+                    .orElse(chosenWaystone);
+            if (!bound.getWaystoneUid().equals(chosenWaystone.getWaystoneUid())) {
+                LOGGER.warn("Registry waystone {} at {} does not match the block's waystone {} — "
+                                + "activating the block's (its chunk was likely regenerated; the registry entry is orphaned)",
+                        chosenWaystone.getWaystoneUid(), chosenWaystone.getPos().toShortString(), bound.getWaystoneUid());
+            }
+            finished = true;
+            logFound(bound);
+            onFound.accept(bound);
+        } else {
+            // A palette-scanned candidate chunk finished loading — its block entity should have
+            // registered the waystone by now. If so, bind to it; its chunk is already loaded.
+            Optional<Waystone> hit = findRegistered();
+            if (hit.isPresent()) {
+                chosenWaystone = hit.get();
+                resolveQueue.clear();
+                resolveQueue.add(chosenWaystone.getPos());
+            }
+            // else: try the next queued candidate (or resume/exhaust when the queue runs dry).
+        }
+        // Decays instead of instant release — a FULL-level ticket holds the largest apron of all.
+        retainedTickets.add(new RetainedTicket(done.pos(), RESOLVE_TICKET_RADIUS));
+        return false;
     }
 
     private void logFound(Waystone waystone) {
@@ -408,38 +579,19 @@ public class WaystoneSearch implements TickWorkers.Worker {
                 STALL_TICKS, inFlight.size(), System.currentTimeMillis() - searchStartMs);
         finished = true;
         for (Pending pending : inFlight) {
-            world.getChunkManager().removeTicket(TICKET, pending.pos(), TICKET_RADIUS, pending.pos());
+            retainedTickets.add(new RetainedTicket(pending.pos(), TICKET_RADIUS));
         }
         inFlight.clear();
+        if (resolvePending != null) {
+            retainedTickets.add(new RetainedTicket(resolvePending.pos(), RESOLVE_TICKET_RADIUS));
+            resolvePending = null;
+        }
         Optional<Waystone> found = findRegistered();
         if (found.isPresent()) {
             onFound.accept(found.get());
         } else {
             onExhausted.run();
         }
-    }
-
-    /**
-     * A scanned waystone block is not yet in the registry (its block entity never loaded at
-     * FEATURES). Promote its chunk — just that one — to FULL, which loads the block entity and
-     * registers the waystone, then pick it up from the registry.
-     */
-    private Optional<Waystone> resolveScanCandidates() {
-        if (scanCandidates.isEmpty()) {
-            return Optional.empty();
-        }
-        scanCandidates.sort(Comparator.comparingLong(this::horizontalDistanceSq));
-        for (BlockPos candidate : scanCandidates) {
-            world.getChunk(ChunkSectionPos.getSectionCoord(candidate.getX()),
-                    ChunkSectionPos.getSectionCoord(candidate.getZ()), ChunkStatus.FULL, true);
-            Optional<Waystone> found = findRegistered();
-            if (found.isPresent()) {
-                scanCandidates.clear();
-                return found;
-            }
-        }
-        scanCandidates.clear();
-        return Optional.empty();
     }
 
     /** Next candidate chunk in nearest-first order, or null when all candidates are issued. */
