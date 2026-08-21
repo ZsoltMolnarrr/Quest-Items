@@ -47,6 +47,7 @@ public class QuestItems {
     public static final Entry molten_tablet = entry("molten_tablet", "Molten Tablet", new Config(DEFAULT_RARITY));
     public static final Entry mossy_tablet = entry("mossy_tablet", "Mossy Tablet", new Config(DEFAULT_RARITY));
     public static final Entry pharaohs_mask = entry("pharaohs_mask", "Pharaoh's Mask", new Config(DEFAULT_RARITY));
+    public static final Entry portal_frame = entry("portal_frame", "Uncharged Doorway", new Config(DEFAULT_RARITY));
     public static final Entry red_urn = entry("red_urn", "Red Urn of Binding", new Config(DEFAULT_RARITY));
     public static final Entry rotten_heart = entry("rotten_heart", "Rotten Heart", new Config(DEFAULT_RARITY));
     public static final Entry sack_of_magic_dust = entry("sack_of_magic_dust", "Sack of Magic Dust", new Config(DEFAULT_RARITY));
